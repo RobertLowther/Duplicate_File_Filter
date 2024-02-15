@@ -1,8 +1,13 @@
-$current_directory = Get-Location
+param (
+    [Parameter(Mandatory=$false)][string]$path
+)
+$current_directory = "$(Get-Location)\$($path)"
 
 $file_list = Get-ChildItem -Path $current_directory -Name
 
 $filtered_files = @{}
+
+echo $file_list
 
 foreach ($file_name in $file_list) {
     $base_name = $file_name.substring(0, $file_name.length - 4)
@@ -51,11 +56,19 @@ if (($filtered_files.length -gt 0) -and -not (Test-Path -Path "$($current_direct
     New-Item -Path "$($current_directory)\dupe" -ItemType Directory
 }
 
+echo ""
+
 foreach ($original in $dupe_table.keys) {
     foreach ($dupe in $dupe_table[$original]) {
         echo "src: $($current_directory)\$($dupe)"
-        echo "dst: $($current_directory)\dupe\$($dupe)"
+        $destination =  "$($current_directory)\dupe\$($dupe)"
+        echo "dst: $($destination)"
         echo ""
-        Move-Item -Path "$($current_directory)\$($dupe)"  -Destination "$($current_directory)\dupe\$($dupe)"
+        if ($destination.Length -gt 256) {
+            echo "Unable to move file '$($dupe)' because this would excede windows file path limit"
+        } else {
+            Move-Item -Path "$($current_directory)\$($dupe)"  -Destination "$($destination)"
+        }
     }
 }
+
