@@ -1,74 +1,96 @@
 param (
-    [Parameter(Mandatory=$false)][string]$path
+    [string]$path,
+    [switch]$check = $false
 )
-$current_directory = "$(Get-Location)\$($path)"
 
-$file_list = Get-ChildItem -Path $current_directory -Name
+$target_directory = "$(Get-Location)\$($path)"
+
+if (-not (Test-Path -Path $target_directory)) {
+    Write-Output "Location '$($target_directory)' does not exist"
+    exit
+}
+
+Write-Output "`nChecking for possible duplicated files in $($target_directory)"
+
+$file_list = Get-ChildItem -Path $target_directory
 
 $filtered_files = @{}
 
-echo $file_list
-
-foreach ($file_name in $file_list) {
-    $base_name = $file_name.substring(0, $file_name.length - 4)
-    $ext = $file_name.substring($file_name.length - 4)
-
-    if ($base_name -contains " - ") { continue }
-
-    $split_name = $base_name -split " - "
-
+foreach ($file in $file_list) {
+    if ($file.GetType().Name -eq "DirectoryInfo") { continue }
+    $ext = $file.Extension
+    $base_name = $file.BaseName
+    
+    $split_name = $base_name -split " - ", -2
+    
     $base_name = $split_name[0]
-    if ($split_name.length -gt 1) {
-        $copy_txt = $split_name[$split_name.length - 1]
+    if ($split_name.length -eq 2) {
+        $copy_txt = $split_name[1]
     } else {
         $copy_txt = ""
     }
-
+    
     if ($copy_txt.length -lt 4 -or $copy_txt.substring(0, 4) -ne "Copy") { continue }
-
+    
     $original_file_name = $base_name + $ext
     if ($filtered_files.ContainsKey($original_file_name)) {
-        $filtered_files[$original_file_name] += $file_name
-    } elseif ($file_list -contains $original_file_name) {
-        $filtered_files[$original_file_name] = @($file_name)
+        $filtered_files[$original_file_name] += $file.Name
+        continue
+    }
+
+    foreach ($stored_file in $file_list) {
+        if ($stored_file.name -eq $original_file_name) {
+            $filtered_files[$original_file_name] = @($file.Name)
+            break
+        }
     }
 }
 
 $dupe_table = @{}
 
 foreach ($original in $filtered_files.keys) {
-    $original_size = (Get-Item "$($current_directory)\$($original)").length
+    $original_size = (Get-Item "$($target_directory)\$($original)").length
     $dupe_list = $filtered_files[$original]
-    $i = 0
+    
     $valid_dupes = @()
-    while ($i -lt $dupe_list.length) {
-        $possible_dupe = $dupe_list[$i]
-        $dupe_size = (Get-Item "$($current_directory)\$($possible_dupe)").length
+    
+    foreach ($possible_dupe in $dupe_list) {
+        $dupe_size = (Get-Item "$($target_directory)\$($possible_dupe)").Length
         if ($original_size -eq $dupe_size) {
             $valid_dupes += $possible_dupe
         }
-        $i += 1
     }
-    $dupe_table[$original] = $valid_dupes
+    
+    if ($valid_dupes.Length -gt 0) {
+        $dupe_table[$original] = $valid_dupes
+    }
 }
 
-if (($filtered_files.length -gt 0) -and -not (Test-Path -Path "$($current_directory)\dupe")) {
-    New-Item -Path "$($current_directory)\dupe" -ItemType Directory
+if (($dupe_table.Keys.Length -gt 0) -and -not (Test-Path -Path "$($target_directory)\dupe")) {
+    New-Item -Path "$($target_directory)\dupe" -ItemType Directory
 }
 
-echo ""
+if ($test) {
+    Write-Output "The following itmes have been identified as possible duplicates:`n"
+    foreach ($original in $dupe_table.keys) {
+        foreach ($dupe in $dupe_table[$original]) {
+            Write-Output "`t$($dupe)"
+        }
+    }
+    Write-Output "`nThese items would be moved to $($target_directory)\dupe\`n"
+    exit
+}
 
 foreach ($original in $dupe_table.keys) {
     foreach ($dupe in $dupe_table[$original]) {
-        echo "src: $($current_directory)\$($dupe)"
-        $destination =  "$($current_directory)\dupe\$($dupe)"
-        echo "dst: $($destination)"
-        echo ""
+        Write-Output "src: $($target_directory)\$($dupe)"
+        $destination =  "$($target_directory)\dupe\$($dupe)"
+        Write-Output "dst: $($destination)"
+        Write-Output ""
         if ($destination.Length -gt 256) {
-            echo "Unable to move file '$($dupe)' because this would excede windows file path limit"
+            Write-Output "Unable to move file '$($dupe)' because this would excede windows file path limit"
         } else {
-            Move-Item -Path "$($current_directory)\$($dupe)"  -Destination "$($destination)"
+            Move-Item -Path "$($target_directory)\$($dupe)"  -Destination "$($destination)"
         }
     }
 }
-
